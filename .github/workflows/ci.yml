@@ -1,0 +1,31 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium for PNG integration tests
+        run: |
+          npx --no-install browsers install chrome@stable --install-deps --path "$RUNNER_TEMP/browsers"
+          echo "CHROMIUM_PATH=$(rg --files "$RUNNER_TEMP/browsers" | rg '/chrome$' | head -1)" >> "$GITHUB_ENV"
+      - run: npm run check
+      - run: npm run build
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
