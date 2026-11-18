@@ -1,0 +1,48 @@
+{
+  "name": "canvas-note",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "check": "npm run lint && npm run typecheck && npm test",
+    "db:migrate": "wrangler d1 migrations apply canvas-note --local",
+    "build": "wrangler deploy --dry-run --outdir dist"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YUUKIsan1/Figma-origin.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/YUUKIsan1/Figma-origin/issues"
+  },
+  "homepage": "https://github.com/YUUKIsan1/Figma-origin#readme",
+  "dependencies": {
+    "@cloudflare/puppeteer": "^2.0.1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "hono": "^4.13.19",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261117.1",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.15.0",
+    "miniflare": "^4.20260730.0",
+    "prettier": "^3.10.1",
+    "puppeteer-core": "^25.18.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.1.0",
+    "wrangler": "^4.164.0"
+  },
+  "private": true
+}
