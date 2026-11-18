@@ -5,7 +5,7 @@ export default ts.config(
   js.configs.recommended,
   ...ts.configs.recommended,
   {
-    files: ['**/*.js'],
+    files: ['**/*.js', '**/*.mjs'],
     languageOptions: {
       globals: {
         document: 'readonly',
@@ -14,6 +14,7 @@ export default ts.config(
         location: 'readonly',
         URL: 'readonly',
         console: 'readonly',
+        AbortSignal: 'readonly',
       },
     },
   },

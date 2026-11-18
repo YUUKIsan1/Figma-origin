@@ -161,3 +161,7 @@ npm run build    # デプロイせずWorkerをバンドル
 ## フォント
 
 `public/fonts/NotoSansJP.ttf`: Noto Sans JP / SIL Open Font License 1.1。ライセンス全文は同ディレクトリの `OFL.txt`。Figmaの名称・ロゴ・UI資産は使用していません。
+
+## 公開後の接続確認
+
+[公開・接続の受け入れ確認](docs/acceptance.md) に、所有者が実行する公開手順の確認項目、`npm run smoke`、スマホ実機・Grok接続の確認項目をまとめています。スモークテストはMCP経由でテスト用デザインを作成し、PNG生成と修正反映を確認します。実行対象には新しいファイルが残ります。
