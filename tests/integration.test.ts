@@ -78,13 +78,22 @@ beforeAll(async () => {
     compatibilityDate: '2026-08-01',
     d1Databases: ['DB'],
     r2Buckets: ['IMAGES'],
+    ratelimits: {
+      API_RATE_LIMITER: { namespace_id: '1001', simple: { limit: 60, period: 60 } },
+      AUTH_RATE_LIMITER: { namespace_id: '1002', simple: { limit: 120, period: 60 } },
+      LOGIN_RATE_LIMITER: { namespace_id: '1003', simple: { limit: 5, period: 60 } },
+      // Exercise many independent mutations without a one-minute pause; quota is tested separately.
+      WRITE_RATE_LIMITER: { namespace_id: '1004', simple: { limit: 1000, period: 60 } },
+    },
   });
   const db = await mf.getD1Database('DB');
   const sql = await readFile('migrations/0001_initial.sql', 'utf8');
   // D1 exec is line-oriented; prepare each SQL statement including the trigger.
   const statements = sql.match(/CREATE TRIGGER[\s\S]*?END;|CREATE TABLE[\s\S]*?\);/g)!;
   for (const statement of statements) await db.prepare(statement).run();
+  await db.prepare(await readFile('migrations/0002_remove_d1_rate_limits.sql', 'utf8')).run();
   env = {
+    ...(await mf.getBindings()),
     DB: db,
     IMAGES: await mf.getR2Bucket('IMAGES'),
     BROWSER: {} as Env['BROWSER'],
@@ -323,8 +332,10 @@ describe('MVP end to end', () => {
   });
   it('enforces limits and revocation', async () => {
     const { rateLimit } = await import('../src/auth');
-    for (let i = 0; i < 60; i++) await rateLimit(env, 'limit-test');
-    await expect(rateLimit(env, 'limit-test')).rejects.toThrow('Rate limit exceeded');
+    for (let i = 0; i < 60; i++) await rateLimit(env.API_RATE_LIMITER, 'limit-test');
+    await expect(rateLimit(env.API_RATE_LIMITER, 'limit-test')).rejects.toThrow(
+      'Rate limit exceeded',
+    );
     expect(
       (
         await request(`/admin/tokens/${accessId}`, 'DELETE', undefined, {
@@ -333,5 +344,52 @@ describe('MVP end to end', () => {
       ).status,
     ).toBe(200);
     expect((await rpc('tools/list', {}, accessToken)).status).toBe(401);
+  });
+  it('clears the HTTPS session cookie in Chromium and denies protected data after logout', async () => {
+    const { default: puppeteer } = await import('puppeteer-core');
+    const browser = await puppeteer.launch({
+      executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
+      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    });
+    try {
+      const page = await browser.newPage();
+      await page.setRequestInterception(true);
+      page.on('request', async (req) => {
+        const response = await app.request(
+          req.url(),
+          { method: req.method(), headers: req.headers(), body: req.postData() },
+          env,
+        );
+        await req.respond({
+          status: response.status,
+          headers: Object.fromEntries(response.headers.entries()),
+          body: await response.text(),
+        });
+      });
+      await page.goto('https://canvas.test/api/files');
+      const result = await page.evaluate(async (password) => {
+        const login = await fetch('/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        const before = await fetch('/api/files');
+        const logout = await fetch('/logout', { method: 'POST' });
+        const after = await fetch('/api/files');
+        const preview = await fetch('/preview/anything/anything');
+        return [login.status, before.status, logout.status, after.status, preview.status];
+      }, env.VIEWER_PASSWORD);
+      expect(result).toEqual([200, 200, 200, 401, 401]);
+      expect(
+        (await browser.defaultBrowserContext().cookies()).some(
+          (cookie) => cookie.name === 'session',
+        ),
+      ).toBe(false);
+      const logout = await request('/logout', 'POST');
+      expect(logout.headers.get('Set-Cookie')).toContain('; Secure');
+      expect(logout.headers.get('Set-Cookie')).toContain('Max-Age=0');
+    } finally {
+      await browser.close();
+    }
   });
 });

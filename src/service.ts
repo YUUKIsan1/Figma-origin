@@ -1,3 +1,4 @@
+import { rateLimit } from './auth';
 import { z } from 'zod';
 import { base64 } from './encoding';
 import type { Env } from './env';
@@ -77,6 +78,19 @@ export async function execute(
   env: Env,
   origin: string,
 ): Promise<unknown> {
+  if (
+    [
+      'create_file',
+      'create_page',
+      'create_frame',
+      'create_nodes',
+      'update_nodes',
+      'delete_nodes',
+      'set_tokens',
+      'restore_revision',
+    ].includes(name)
+  )
+    await rateLimit(env.WRITE_RATE_LIMITER, 'workspace');
   const store = new Store(env);
   switch (name) {
     case 'list_files':

@@ -13,14 +13,22 @@ npm ci
 cp .env.example .dev.vars
 ```
 
-`.dev.vars` の `ADMIN_TOKEN`、`VIEWER_PASSWORD`、`SESSION_SECRET` を設定してください。`SESSION_SECRET` は32文字以上のランダム値にします。例: `openssl rand -hex 32`。実値はコミットしません。`.env.example` には変数名のみ記載しています。Workersはローカル開発時に `.dev.vars` を読みます。
+`.dev.vars` の `ADMIN_TOKEN`、`VIEWER_PASSWORD`、`SESSION_SECRET` を設定してください。`ADMIN_TOKEN`、`VIEWER_PASSWORD`、`SESSION_SECRET` はいずれも32文字以上のランダム値にします。未設定・短い値の場合、Workerは503を返してリクエスト処理を開始しません。例: `openssl rand -hex 32`。実値はコミットしません。`.env.example` には変数名のみ記載しています。Workersはローカル開発時に `.dev.vars` を読みます。
 
 ```sh
 npm run db:migrate
 npm run dev
 ```
 
-`http://localhost:8787` を開き、閲覧パスワードでログインします。最初はファイルが空です。MCPまたはAPIから作成してください。D1/R2はローカル環境に保存されます。Browser Renderingのローカル動作はWranglerの対応状況に依存するため、PNGの開発検証には下記のChromium統合テストも用意しています。
+このバックエンドPR単独では、トップページのログイン画面は含まれません。閲覧UIは **PR #3のマージ後** に利用できます。ローカルでは `http://localhost:8787/mcp`、または `POST http://localhost:8787/api/tools/<tool名>` をBearer認証で呼び出して確認します。例えば、ローカル環境に設定した管理者トークンをシェル変数 `ADMIN_TOKEN` に安全に読み込んだ状態で:
+
+```sh
+curl -X POST http://localhost:8787/api/tools/list_files \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{}'
+```
+
+D1/R2はローカル環境に保存されます。Browser Renderingのローカル動作はWranglerの対応状況に依存するため、PNGの開発検証には下記のChromium統合テストも用意しています。
 
 ## 本番の設定・公開（所有者が実行）
 
@@ -42,11 +50,13 @@ npx wrangler d1 migrations apply canvas-note --remote
 npm run deploy
 ```
 
-WorkersのHTTPS URLがビューア、同じURLの `/mcp` がStreamable HTTPエンドポイントです。`ADMIN_TOKEN` は管理専用に保管し、Botには以下で発行するトークンを渡してください。
+WorkersのHTTPS URLの `/mcp` がStreamable HTTPエンドポイントです。PR #3のマージ後は、同じHTTPS URLのトップページがビューアになります。`ADMIN_TOKEN` は管理専用に保管し、Botには以下で発行するトークンを渡してください。
 
 ### 無料枠
 
 有料プランを前提としません。Browser RenderingはWorkers Freeで **1日10分・同時3ブラウザ**。PNGはファイルの版ごとにR2へキャッシュします。D1・R2・Workersにも無料枠上限があります。大量描画、フォント転送、PNGキャッシュの蓄積で上限に達する場合は、利用量を確認して調整してください。無料枠内の運用・実性能は本番で確認が必要です。R2有効化時に支払い方法の登録を求められる場合があります。
+
+未キャッシュのPNG描画は、約9.6MBの可変日本語フルフォント（Noto Sans JP）の転送を含み、描画ごとに新しいブラウザを起動します。Workers Freeの1リクエスト10msというCPU上限に対し、ファイルのJSON処理・PNGのbase64化のCPU時間は未計測です。無料枠内の性能・稼働を保証するものではありません。フォント転送の削減とBrowser Rendering依存の緩和はIssue #7で扱います。
 
 - [Browser Rendering料金](https://developers.cloudflare.com/browser-rendering/pricing/)
 - [Workers料金](https://developers.cloudflare.com/workers/platform/pricing/)
@@ -72,7 +82,20 @@ curl "$BASE_URL/admin/tokens" -H "Authorization: Bearer $ADMIN_TOKEN"
 curl -X DELETE "$BASE_URL/admin/tokens/$TOKEN_ID" -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
-発行トークン単位で毎分60リクエスト。管理者トークンも毎分60回。ログイン試行はIP単位で毎分5回。D1の原子的更新を使用し、失効は次のリクエストから有効です。上限は `src/auth.ts` で変更できます。
+レート制限はD1ではなく、Cloudflare標準のWorkers Rate Limiting bindingを使用します。カウンタのためのD1読み書きはありません。失敗したログインでもD1にアクセスしません。不正Bearerは制限内のみトークン照合のD1読み取りを行い、制限超過後は照合前に拒否します。
+
+| 制限 | 値・対象 | binding |
+|---|---|---|
+| MCP / REST / 管理API | 発行トークン単位・管理者トークンは毎分60リクエスト | `API_RATE_LIMITER` |
+| Bearer認証試行（失敗・未指定も含む） | IP単位で毎分120リクエスト、D1照合前に判定 | `AUTH_RATE_LIMITER` |
+| ログイン試行（成功・失敗とも） | IP単位で毎分5回、パスワード照合前に判定 | `LOGIN_RATE_LIMITER` |
+| D1へ書き込む変更ツールとトークン発行・失効 | ワークスペース全体で毎分12回 | `WRITE_RATE_LIMITER` |
+
+値は `wrangler.jsonc` の `ratelimits` で変更します。namespace IDはCloudflareアカウント内で他の用途と重ならない値を指定してください。これらのカウンタはCloudflare拠点単位の近似的な制限です。世界全体での厳密な回数や分境界の滑らかな制御は保証しません。
+
+毎分60回は主に読み取り用で、D1変更には別の毎分12回の予算があります。通常のファイル変更は、filesの更新・履歴挿入・古い履歴削除とそのインデックスを含め最大約5行の書き込みを見込み、1拠点で毎分12回を継続した場合は1日約86,400行です（D1 Freeの日次上限100,000行に対する目安）。複数拠点からの利用や将来のスキーマ変更で増えるため、実際の使用量はD1ダッシュボードで確認してください。D1側の日次上限も適用されます。失敗する変更リクエストも予算を消費します。画像アップロードとPNGキャッシュはR2を使うため、このD1予算の対象外です。
+
+トークンの失効は次のリクエストから有効です。ローカルでも設定済みのbindingをWranglerが用意します。カウンタ移行用の `0002_remove_d1_rate_limits.sql` をD1へ適用してください。
 
 ## Grok Botへの接続
 
@@ -141,13 +164,15 @@ File → Page → Frame → Node。Nodeはフレーム内の配列で保存し�
 
 色は `#RRGGBB` / `#RRGGBBAA`。画像はPNG/JPEG/WebP・2MBまで、外部URL・SVGは不可。画像は領域にcoverで表示します。1ファイル1MB、100ページ、1ページ100フレーム、1フレーム1000ノード、最大4096px・800万画素。1回のバッチは最大200ノードです。
 
-## ビューア
+## ビューア（PR #3のマージ後）
+
+このバックエンドPRには閲覧データAPI、認証、プレビュー生成のみ含まれます。以下の操作UIはPR #3が必要です。
 
 閲覧パスワードでログインし、ファイル → ページ → フレームと進みます。同じページ内のモバイル/PC画面はセレクトで切り替えられます。「画面に合わせる」、10〜200%のズーム、スクロールに対応。10秒ごとに変更を確認し、手動更新もできます。24時間有効の署名付きHttpOnly/SameSite Cookieを使い、本番HTTPSではSecure属性が付きます。パスワード変更時、既存セッションも破棄するには `SESSION_SECRET` をローテーションしてください。
 
 ## テスト・CI
 
-ローカルにはChromiumが必要です。実行パスを `CHROMIUM_PATH` で指定できます（既定 `/usr/bin/chromium`）。CIではChromeをインストールします。
+ローカルにはChromiumが必要です。実行パスを `CHROMIUM_PATH` で指定できます（既定 `/usr/bin/chromium`）。CIではChromeをインストールし、実行可能ファイルの存在を検証したうえで `CHROMIUM_PATH` に設定します。HTTPSでのCookie削除と、失敗した認証試行でD1へ書き込まないことも検証します。
 
 ```sh
 npm run check    # ESLint + TypeScript + Vitest
