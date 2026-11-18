@@ -56,7 +56,9 @@ WorkersのHTTPS URLの `/mcp` がStreamable HTTPエンドポイントです。PR
 
 有料プランを前提としません。Browser RenderingはWorkers Freeで **1日10分・同時3ブラウザ**。PNGはファイルの版ごとにR2へキャッシュします。D1・R2・Workersにも無料枠上限があります。大量描画、フォント転送、PNGキャッシュの蓄積で上限に達する場合は、利用量を確認して調整してください。無料枠内の運用・実性能は本番で確認が必要です。R2有効化時に支払い方法の登録を求められる場合があります。
 
-未キャッシュのPNG描画は、約9.6MBの可変日本語フルフォント（Noto Sans JP）の転送を含み、描画ごとに新しいブラウザを起動します。Workers Freeの1リクエスト10msというCPU上限に対し、ファイルのJSON処理・PNGのbase64化のCPU時間は未計測です。無料枠内の性能・稼働を保証するものではありません。フォント転送の削減とBrowser Rendering依存の緩和はIssue #7で扱います。
+未キャッシュのPNG描画は、約9.6MBの可変日本語フルフォント（Noto Sans JP）の転送を含み、描画ごとに新しいブラウザを起動します。Workers Freeの1リクエスト10msというCPU上限に対し、ファイルのJSON処理・PNGのbase64化のCPU時間は未計測です。無料枠内の性能・稼働を保証するものではありません。
+
+Issue #7の[代替PNG描画の調査と再現手順](docs/png-rendering-research.md)では、SVG→PNGのWASM方式を測定しましたが、無料枠のCPU予算に収まる根拠が得られず採用を見送りました。現在もキャッシュにないPNGの生成にはBrowser Renderingの成功が必要で、ブラウザが使えない場合のフォールバックは未実装です。Issue #7は未完了のまま、有料構成の追加も行っていません。
 
 - [Browser Rendering料金](https://developers.cloudflare.com/browser-rendering/pricing/)
 - [Workers料金](https://developers.cloudflare.com/workers/platform/pricing/)
