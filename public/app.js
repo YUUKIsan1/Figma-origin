@@ -4,15 +4,25 @@ let selectedFile = null,
   selectedFrame = null,
   currentVersion = null;
 let navigation = 0;
+let fitMode = false;
+function showLogin() {
+  ++navigation; // Invalidate responses that were started before logout/session expiry.
+  selectedFile = selectedPage = selectedFrame = currentVersion = null;
+  fitMode = false;
+  $('viewer').hidden = true;
+  $('login').hidden = false;
+  $('logout').hidden = true;
+  $('preview').removeAttribute('src');
+  $('password').value = '';
+  $('status').textContent = '';
+}
 async function api(path, options = {}) {
   const response = await fetch(path, options);
-  if (response.status === 401) {
-    $('viewer').hidden = true;
-    $('login').hidden = false;
-    $('logout').hidden = true;
+  const result = await response.json();
+  if (response.status === 401 && path !== '/login') {
+    showLogin();
     throw new Error('ログインしてください');
   }
-  const result = await response.json();
   if (!response.ok)
     throw new Error(typeof result.error === 'string' ? result.error : 'リクエストに失敗しました');
   return result;
@@ -142,7 +152,8 @@ async function load() {
       $('preview').width = selectedFrame.width;
       $('preview').height = selectedFrame.height;
       $('preview').src = `/preview/${selectedFile.id}/${selectedFrame.id}?v=${currentVersion}`;
-      zoom();
+      if (fitMode) fit();
+      else zoom();
     }
   }
   if (!$('list').hidden && !$('list').children.length) {
@@ -162,12 +173,17 @@ function zoom() {
   $('zoom-value').value = `${value}%`;
 }
 function fit() {
-  if (!selectedFrame) return;
-  $('zoom').value = Math.min(
-    100,
-    Math.max(10, Math.floor((($('stage').clientWidth - 48) / selectedFrame.width) * 100)),
-  );
+  if (!selectedFrame || $('frame-view').hidden) return;
+  const stage = $('stage');
+  const style = window.getComputedStyle(stage);
+  const width = stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  const height =
+    stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+  const scale = Math.min(1, width / selectedFrame.width, height / selectedFrame.height);
+  $('zoom').value = Math.max(1, Math.floor(scale * 100));
+  fitMode = true;
   zoom();
+  stage.scrollLeft = stage.scrollTop = 0;
 }
 $('login-form').onsubmit = (event) => {
   event.preventDefault();
@@ -183,12 +199,17 @@ $('login-form').onsubmit = (event) => {
 };
 $('logout').onclick = action(async () => {
   await api('/logout', { method: 'POST' });
-  selectedFile = selectedPage = selectedFrame = null;
-  await load();
+  showLogin();
 });
 $('refresh').onclick = action(load);
 $('fit').onclick = fit;
-$('zoom').oninput = zoom;
+$('zoom').oninput = () => {
+  fitMode = false;
+  zoom();
+};
+window.addEventListener('resize', () => {
+  if (fitMode) fit();
+});
 $('frames').onchange = action(async () => {
   selectedFrame = selectedPage.frames.find((f) => f.id === $('frames').value);
   await load();

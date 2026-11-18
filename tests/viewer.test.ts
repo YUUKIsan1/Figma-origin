@@ -44,6 +44,7 @@ it('logs in on a phone viewport, opens a frame, switches to PC and zooms', async
     const sql = await readFile('migrations/0001_initial.sql', 'utf8');
     for (const stmt of sql.match(/CREATE TRIGGER[\s\S]*?END;|CREATE TABLE[\s\S]*?\);/g)!)
       await db.prepare(stmt).run();
+    await db.prepare(await readFile('migrations/0002_remove_d1_rate_limits.sql', 'utf8')).run();
     const env = {
       ...(await mf.getBindings()),
       DB: db,
@@ -124,6 +125,14 @@ it('logs in on a phone viewport, opens a frame, switches to PC and zooms', async
     tab.on('pageerror', (e) => errors.push(String(e)));
     await tab.goto(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
     await tab.waitForSelector('#login:not([hidden])');
+    await tab.type('#password', 'incorrect-password');
+    await tab.click('#login-form button');
+    await tab.waitForFunction(
+      () => document.querySelector('#status')?.textContent === 'パスワードが違います',
+    );
+    await tab.$eval('#password', (el) => {
+      (el as HTMLInputElement).value = '';
+    });
     await tab.type('#password', env.VIEWER_PASSWORD);
     await tab.click('#login-form button');
     await tab.waitForSelector('.card');
@@ -140,7 +149,57 @@ it('logs in on a phone viewport, opens a frame, switches to PC and zooms', async
         .querySelector<HTMLIFrameElement>('#preview')
         ?.contentDocument?.body.textContent?.includes('今日のアイデア'),
     );
+    const layout = () =>
+      tab.evaluate(() => {
+        const stage = document.querySelector<HTMLElement>('#stage')!;
+        const space = document.querySelector<HTMLElement>('#frame-space')!;
+        const preview = document.querySelector<HTMLIFrameElement>('#preview')!;
+        const style = window.getComputedStyle(stage);
+        const horizontalPadding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+        const verticalPadding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+        return {
+          clientWidth: stage.clientWidth,
+          clientHeight: stage.clientHeight,
+          scrollWidth: stage.scrollWidth,
+          scrollHeight: stage.scrollHeight,
+          spaceWidth: space.getBoundingClientRect().width,
+          spaceHeight: space.getBoundingClientRect().height,
+          renderedWidth: preview.getBoundingClientRect().width,
+          renderedHeight: preview.getBoundingClientRect().height,
+          frameWidth: Number(preview.width),
+          frameHeight: Number(preview.height),
+          horizontalPadding,
+          verticalPadding,
+          zoom: Number(document.querySelector<HTMLInputElement>('#zoom')!.value),
+          documentWidth: document.documentElement.scrollWidth,
+          viewport: window.innerWidth,
+        };
+      });
+    async function expectFit() {
+      const box = await layout();
+      expect(box.scrollWidth).toBeLessThanOrEqual(box.clientWidth + 1);
+      expect(box.scrollHeight).toBeLessThanOrEqual(box.clientHeight + 1);
+      expect(box.renderedWidth).toBeCloseTo(box.spaceWidth, 1);
+      expect(box.renderedHeight).toBeCloseTo(box.spaceHeight, 1);
+      expect(box.renderedWidth).toBeCloseTo((box.frameWidth * box.zoom) / 100, 1);
+      expect(box.renderedHeight).toBeCloseTo((box.frameHeight * box.zoom) / 100, 1);
+      expect(box.zoom).toBe(
+        Math.max(
+          1,
+          Math.floor(
+            Math.min(
+              1,
+              (box.clientWidth - box.horizontalPadding) / box.frameWidth,
+              (box.clientHeight - box.verticalPadding) / box.frameHeight,
+            ) * 100,
+          ),
+        ),
+      );
+      expect(box.documentWidth).toBeLessThanOrEqual(box.viewport);
+    }
     expect(await tab.$eval('#preview', (el) => (el as HTMLIFrameElement).width)).toBe('390');
+    await tab.click('#fit');
+    await expectFit();
     const options = await tab.$$eval('#frames option', (options) =>
       options.map((o) => (o as HTMLOptionElement).value),
     );
@@ -148,11 +207,44 @@ it('logs in on a phone viewport, opens a frame, switches to PC and zooms', async
     await tab.waitForFunction(
       () => document.querySelector<HTMLIFrameElement>('#preview')?.width === '1440',
     );
-    await tab.$eval('#zoom', (el) => {
-      (el as HTMLInputElement).value = '50';
-      el.dispatchEvent(new Event('input'));
-    });
-    expect(await tab.$eval('#zoom-value', (el) => el.textContent)).toBe('50%');
+    await expectFit();
+    const portraitZoom = await tab.$eval('#zoom', (el) => (el as HTMLInputElement).value);
+    await tab.setViewport({ width: 844, height: 390, isMobile: true, hasTouch: true });
+    await tab.waitForFunction(
+      (value) => document.querySelector<HTMLInputElement>('#zoom')!.value !== value,
+      {},
+      portraitZoom,
+    );
+    await expectFit();
+    await tab.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+    await tab.waitForFunction(
+      (value) => document.querySelector<HTMLInputElement>('#zoom')!.value === value,
+      {},
+      portraitZoom,
+    );
+    await expectFit();
+    for (const value of [50, 200]) {
+      await tab.$eval(
+        '#zoom',
+        (el, value) => {
+          (el as HTMLInputElement).value = String(value);
+          el.dispatchEvent(new Event('input'));
+        },
+        value,
+      );
+      expect(await tab.$eval('#zoom-value', (el) => el.textContent)).toBe(`${value}%`);
+      const box = await layout();
+      expect(box.renderedWidth).toBeCloseTo((1440 * value) / 100, 1);
+      expect(box.renderedHeight).toBeCloseTo((900 * value) / 100, 1);
+      expect(box.scrollWidth).toBeGreaterThan(box.clientWidth);
+      expect(box.scrollWidth).toBeLessThanOrEqual(box.renderedWidth + box.horizontalPadding + 2);
+      expect(box.scrollHeight).toBeLessThanOrEqual(
+        Math.max(box.clientHeight, box.renderedHeight + box.verticalPadding) + 2,
+      );
+      expect(box.documentWidth).toBeLessThanOrEqual(box.viewport);
+    }
+    await tab.click('#fit');
+    await expectFit();
     await tab.waitForFunction(() =>
       document
         .querySelector<HTMLIFrameElement>('#preview')
@@ -168,6 +260,9 @@ it('logs in on a phone viewport, opens a frame, switches to PC and zooms', async
     expect(errors).toEqual([]);
     await tab.click('#logout');
     await tab.waitForSelector('#login:not([hidden])');
+    expect(await tab.$eval('#status', (el) => el.textContent)).toBe('');
+    expect(await tab.$eval('#preview', (el) => el.getAttribute('src'))).toBe(null);
+    expect(await tab.$eval('#password', (el) => (el as HTMLInputElement).value)).toBe('');
   } finally {
     await browser.close();
     await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
