@@ -90,6 +90,7 @@ async function run() {
   );
   const { tools } = await client.listTools();
   for (const name of [
+    'export_frame_spec',
     'list_components',
     'set_component',
     'delete_component',

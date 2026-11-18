@@ -1,6 +1,13 @@
 import puppeteer from '@cloudflare/puppeteer';
 import type { Env } from './env';
-import { resolve, type DesignNode, type Frame, type Tokens } from './model';
+import {
+  resolve,
+  resolvedFrame,
+  type DesignFile,
+  type DesignNode,
+  type Frame,
+  type Tokens,
+} from './model';
 import { base64 } from './encoding';
 export function escape(value: string) {
   return value.replace(
@@ -74,4 +81,22 @@ export async function renderFrame(frame: Frame, tokens: Tokens, env: Env, origin
   } finally {
     await browser.close();
   }
+}
+
+// Share a versioned cache and a single file snapshot between render_frame and specification export.
+export async function cachedFramePng(
+  file: DesignFile,
+  version: number,
+  frameId: string,
+  env: Env,
+  origin: string,
+) {
+  const frame = resolvedFrame(file, frameId);
+  const key = `renders/${file.id}/${frameId}/${version}.png`;
+  const cached = await env.IMAGES.get(key);
+  const png = cached
+    ? new Uint8Array(await cached.arrayBuffer())
+    : await renderFrame(frame, file.tokens, env, origin);
+  if (!cached) await env.IMAGES.put(key, png, { httpMetadata: { contentType: 'image/png' } });
+  return { data: base64(png), mimeType: 'image/png' as const };
 }

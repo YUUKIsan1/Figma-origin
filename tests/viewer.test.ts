@@ -109,6 +109,9 @@ it('logs in on a phone viewport, opens a frame, switches to PC and zooms', async
         body: ['GET', 'HEAD'].includes(req.method!) ? undefined : Buffer.concat(chunks),
       });
       const response = await app.fetch(request, env);
+      // Keep iframe navigation asynchronous so the wait also covers its initial about:blank document.
+      if (req.url?.startsWith('/preview/'))
+        await new Promise((resolve) => setTimeout(resolve, 200));
       res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
       res.end(Buffer.from(await response.arrayBuffer()));
     });
@@ -144,11 +147,16 @@ it('logs in on a phone viewport, opens a frame, switches to PC and zooms', async
     );
     await tab.click('.card');
     await tab.waitForSelector('#frame-view:not([hidden])');
-    await tab.waitForFunction(() =>
-      document
-        .querySelector<HTMLIFrameElement>('#preview')
-        ?.contentDocument?.body.textContent?.includes('今日のアイデア'),
-    );
+    // Timer polling observes iframe document replacement even when animation frames are suspended.
+    const expectPreviewText = () =>
+      tab.waitForFunction(
+        () =>
+          document
+            .querySelector<HTMLIFrameElement>('#preview')
+            ?.contentDocument?.body.textContent?.includes('今日のアイデア'),
+        { polling: 100 },
+      );
+    await expectPreviewText();
     const layout = () =>
       tab.evaluate(() => {
         const stage = document.querySelector<HTMLElement>('#stage')!;
@@ -245,11 +253,7 @@ it('logs in on a phone viewport, opens a frame, switches to PC and zooms', async
     }
     await tab.click('#fit');
     await expectFit();
-    await tab.waitForFunction(() =>
-      document
-        .querySelector<HTMLIFrameElement>('#preview')
-        ?.contentDocument?.body.textContent?.includes('今日のアイデア'),
-    );
+    await expectPreviewText();
     await tab.frames()[1].evaluate(async () => {
       await document.fonts.ready;
     });
