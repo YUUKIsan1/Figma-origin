@@ -11,7 +11,8 @@
     "test": "vitest run",
     "check": "npm run lint && npm run typecheck && npm test",
     "db:migrate": "wrangler d1 migrations apply canvas-note --local",
-    "build": "wrangler deploy --dry-run --outdir dist"
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "smoke": "node scripts/smoke.mjs"
   },
   "repository": {
     "type": "git",

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Canvas Note</title>
+    <link rel="stylesheet" href="/app.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand">◈ Canvas Note</a><span class="badge">Design viewer</span
+      ><button id="logout" hidden>ログアウト</button>
+    </header>
+    <main>
+      <section id="login" hidden>
+        <p class="eyebrow">YOUR DESIGN SPACE</p>
+        <h1>画面を、手のひらに。</h1>
+        <p>ボットが描いたデザインを、どこからでも確認できます。</p>
+        <form id="login-form">
+          <label for="password">閲覧パスワード</label
+          ><input id="password" type="password" autocomplete="current-password" required /><button
+            type="submit"
+          >
+            ログイン
+          </button>
+        </form>
+      </section>
+      <section id="viewer" hidden>
+        <nav id="breadcrumb" aria-label="現在の場所"></nav>
+        <div class="heading">
+          <div>
+            <p class="eyebrow">WORKSPACE</p>
+            <h1 id="title">デザインファイル</h1>
+          </div>
+          <button id="refresh">更新</button>
+        </div>
+        <div id="list" class="grid"></div>
+        <section id="frame-view" hidden>
+          <div class="controls">
+            <label
+              >画面
+              <select id="frames"></select></label
+            ><label
+              >倍率 <input id="zoom" type="range" min="1" max="200" value="100" /><output
+                id="zoom-value"
+                >100%</output
+              ></label
+            ><button id="fit">画面に合わせる</button>
+          </div>
+          <div id="stage">
+            <div id="frame-space">
+              <iframe id="preview" title="デザインプレビュー" sandbox="allow-same-origin"></iframe>
+            </div>
+          </div>
+          <p class="hint">倍率を変えてスクロールできます。変更は10秒ごとに反映されます。</p>
+        </section>
+      </section>
+      <p id="status" role="status" aria-live="polite"></p>
+    </main>
+    <footer>Canvas Note · A quiet place for your next idea.</footer>
+  </body>
+</html>
