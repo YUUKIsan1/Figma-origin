@@ -6,7 +6,7 @@ import app from '../../src/index';
 import type { Env } from '../../src/env';
 
 // Serve the Worker and its public assets over real HTTP for external-client tests.
-export async function startTestRuntime() {
+export async function startTestRuntime({ writeLimit = 12 } = {}) {
   const mf = new Miniflare({
     modules: true,
     script: 'export default {fetch(){return new Response("ok")}}',
@@ -17,7 +17,7 @@ export async function startTestRuntime() {
       API_RATE_LIMITER: { namespace_id: '1001', simple: { limit: 60, period: 60 } },
       AUTH_RATE_LIMITER: { namespace_id: '1002', simple: { limit: 120, period: 60 } },
       LOGIN_RATE_LIMITER: { namespace_id: '1003', simple: { limit: 5, period: 60 } },
-      WRITE_RATE_LIMITER: { namespace_id: '1004', simple: { limit: 12, period: 60 } },
+      WRITE_RATE_LIMITER: { namespace_id: '1004', simple: { limit: writeLimit, period: 60 } },
     },
   });
   const db = await mf.getD1Database('DB');

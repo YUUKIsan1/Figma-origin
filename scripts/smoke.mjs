@@ -90,6 +90,10 @@ async function run() {
   );
   const { tools } = await client.listTools();
   for (const name of [
+    'list_components',
+    'set_component',
+    'delete_component',
+    'create_instances',
     'list_files',
     'create_file',
     'get_file',

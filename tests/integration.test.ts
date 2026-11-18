@@ -158,7 +158,7 @@ describe('MVP end to end', () => {
     ).toBe('canvas-note');
     const list = await rpc('tools/list', {}, accessToken);
     const tools = (await list.json()) as { result: { tools: { name: string }[] } };
-    expect(tools.result.tools).toHaveLength(15);
+    expect(tools.result.tools).toHaveLength(19);
   });
   it('creates mobile and PC frames using only MCP', async () => {
     async function call(name: string, args: unknown) {

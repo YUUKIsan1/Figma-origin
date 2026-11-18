@@ -26,7 +26,7 @@ export function renderDocument(
         const common = `position:absolute;box-sizing:border-box;left:${resolve(n.x, tokens.spacing)}px;top:${resolve(n.y, tokens.spacing)}px;width:${resolve(n.w, tokens.spacing)}px;height:${resolve(n.h, tokens.spacing)}px;background:${paint(n.fill)};border:${resolve(n.strokeWidth, tokens.spacing)}px solid ${paint(n.stroke)};border-radius:${resolve(n.radius, tokens.radii)}px;box-shadow:${shadow};opacity:${n.opacity};`;
         const textCSS = `font-family:${style.font === 'sans' ? 'Arial' : style.font === 'serif' ? 'Georgia' : 'monospace'},'Canvas Japanese';font-size:${style.size}px;font-weight:${style.weight};line-height:${style.lineHeight};color:${paint(style.color)};text-align:${style.align};white-space:pre-wrap;overflow-wrap:anywhere;`;
         const content =
-          n.type === 'group'
+          n.type === 'group' || n.type === 'instance'
             ? nodes(n.id)
             : n.type === 'text'
               ? escape(n.text)

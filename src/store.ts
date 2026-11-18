@@ -23,11 +23,15 @@ export class Store {
       .run();
     return { file, version: 1 };
   }
-  async mutate(id: string, change: (file: DesignFile) => void, expectedVersion?: number) {
-    const { file, version } = await this.get(id);
+  async mutate(
+    id: string,
+    change: (file: DesignFile) => void | DesignFile,
+    expectedVersion?: number,
+  ) {
+    const { file: current, version } = await this.get(id);
     if (expectedVersion !== undefined && version !== expectedVersion)
       throw new AppError(409, 'Version conflict; read file and retry');
-    change(file);
+    const file = change(current) ?? current;
     validateFile(file);
     const result = await this.env.DB.prepare(
       "UPDATE files SET body = ?, name = ?, version = version + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND version = ?",
@@ -54,6 +58,13 @@ export class Store {
       .bind(id, revision)
       .first<{ body: string }>();
     if (!row) throw new AppError(404, 'Revision not found');
-    return this.mutate(id, (file) => Object.assign(file, JSON.parse(row.body)), expectedVersion);
+    const snapshot: DesignFile = JSON.parse(row.body);
+    // Replace the document rather than merging: keys absent from the snapshot must disappear.
+    // Pre-component snapshots are normalized to the empty component collection.
+    return this.mutate(
+      id,
+      () => ({ ...snapshot, components: snapshot.components ?? [] }),
+      expectedVersion,
+    );
   }
 }
