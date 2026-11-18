@@ -2,7 +2,17 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import type { Env } from './env';
-import { bearer, createSession, equal, hasSession, hash, rateLimit } from './auth';
+import {
+  bearer,
+  createSession,
+  equal,
+  hasSession,
+  hash,
+  rateLimit,
+  requestIP,
+  sessionCookie,
+  validateSecrets,
+} from './auth';
 import { AppError, findFrame } from './model';
 import { Store } from './store';
 import { execute, inputs, type ToolName } from './service';
@@ -13,6 +23,7 @@ app.use('*', async (c, next) => {
   const origin = c.req.header('Origin');
   if (origin && origin !== new URL(c.req.url).origin && !['GET', 'HEAD'].includes(c.req.method))
     return c.json({ error: 'Cross-origin request denied' }, 403);
+  validateSecrets(c.env);
   await next();
   c.header('X-Content-Type-Options', 'nosniff');
   c.header('Referrer-Policy', 'no-referrer');
@@ -33,20 +44,15 @@ app.use(
   bodyLimit({ maxSize: 3_000_000, onError: (c) => c.json({ error: 'Request too large' }, 413) }),
 );
 app.post('/login', async (c) => {
-  const ip = c.req.header('CF-Connecting-IP') ?? 'local';
-  await rateLimit(c.env, `login:${await hash(ip)}`, 5);
+  await rateLimit(c.env.LOGIN_RATE_LIMITER, `login:${await requestIP(c.req.raw)}`);
   const { password } = z.object({ password: z.string().max(1024) }).parse(await c.req.json());
   if (!c.env.VIEWER_PASSWORD || !(await equal(password, c.env.VIEWER_PASSWORD)))
     throw new AppError(401, 'パスワードが違います');
-  const secure = new URL(c.req.url).protocol === 'https:' ? '; Secure' : '';
-  c.header(
-    'Set-Cookie',
-    `session=${await createSession(c.env)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400${secure}`,
-  );
+  c.header('Set-Cookie', sessionCookie(c.req.raw, await createSession(c.env), 86400));
   return c.json({ ok: true });
 });
 app.post('/logout', (c) => {
-  c.header('Set-Cookie', 'session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0');
+  c.header('Set-Cookie', sessionCookie(c.req.raw, '', 0));
   return c.json({ ok: true });
 });
 app.all('/mcp', async (c) => {
@@ -68,6 +74,7 @@ app.get('/admin/tokens', async (c) =>
 );
 app.post('/admin/tokens', async (c) => {
   const { name } = z.object({ name: z.string().trim().min(1).max(200) }).parse(await c.req.json());
+  await rateLimit(c.env.WRITE_RATE_LIMITER, 'workspace');
   const token = `${crypto.randomUUID()}${crypto.randomUUID()}`;
   const id = crypto.randomUUID();
   await c.env.DB.prepare('INSERT INTO access_tokens(id, name, hash) VALUES (?, ?, ?)')
@@ -76,6 +83,7 @@ app.post('/admin/tokens', async (c) => {
   return c.json({ id, name, token }, 201);
 });
 app.delete('/admin/tokens/:id', async (c) => {
+  await rateLimit(c.env.WRITE_RATE_LIMITER, 'workspace');
   const result = await c.env.DB.prepare('UPDATE access_tokens SET revoked = 1 WHERE id = ?')
     .bind(c.req.param('id'))
     .run();
