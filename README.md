@@ -186,3 +186,7 @@ npm run build    # デプロイせずWorkerをバンドル
 ## フォント
 
 `public/fonts/NotoSansJP.ttf`: Noto Sans JP / SIL Open Font License 1.1。ライセンス全文は同ディレクトリの `OFL.txt`。Figmaの名称・ロゴ・UI資産は使用していません。
+
+## Grok接続の運用
+
+[Grok Botへの登録・接続確認・トークンローテーション](docs/grok-connector.md) に、所有者が秘密値をチャットへ貼らずに作業する手順を記載しています。新トークンの発行 → コネクタ更新 → 動作確認 → 旧トークン失効の順で進めてください。利用はMVPのPR #2・#3マージ後です。
