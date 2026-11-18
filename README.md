@@ -124,6 +124,7 @@ Botへの指示例:
 | `set_tokens` | `fileId`, `tokens` | トークン全体を置換、版番号 |
 | `get_tokens` | `fileId` | トークンと版番号 |
 | `get_frame_tree` | `fileId`, `frameId` | ネストした構造・トークン・版番号 |
+| `export_frame_spec` | `fileId`, `frameId`, `includePng?`（既定false） | Markdown・JSON仕様、任意のPNG |
 | `render_frame` | `fileId`, `frameId` | MCP image content（PNG） |
 | `upload_image` | `data`（base64）, `mimeType` | `imageId` |
 | `list_revisions` | `fileId` | 直近20版の一覧 |
@@ -205,6 +206,34 @@ File → Page → Frame → Node。Nodeはrect/text/image/group/instanceの5種�
 ```
 
 `list_components` で定義を取得し、見出しや塗りを変えて同じ `component.id` で `set_component` すると、両方のPNGとビューアへ反映されます。変更ツールの `expectedVersion` と、ワークスペースの毎分12回のD1変更予算も既存どおり適用します。
+
+## フレーム仕様の引き渡し
+
+`export_frame_spec` は指定フレームを、実装担当が追加の画面操作なしで読める仕様として書き出します。
+
+```json
+{"fileId":"取得したファイルID","frameId":"対象フレームID","includePng":false}
+```
+
+MCPではcontentの先頭にMarkdown、2番目にJSON仕様をtextで返します。`includePng:true` を指定した場合は、3番目にPNGのimage contentを添付します。RESTの `POST /api/tools/export_frame_spec` は `{markdown,spec,png?}` を返し、PNGは `{data:<base64>,mimeType:"image/png"}` です。
+
+仕様のJSONは `schemaVersion:1` で、次を含みます。
+
+- `file`・`page`・`frame`: ID・名前・ファイルの版、フレームの幅・高さ・背景と解決済みの背景色。
+- `tokens`: 指定フレームと展開した部品内で参照する色・文字スタイル・余白・角丸。文字スタイル内の色参照も収集し、他フレームや未使用部品だけのトークンは含めません。
+- `components`: 参照するマスターのIDと名前。
+- `nodes`: 部品を展開した階層ツリー。元の座標・サイズ・テキスト・トークン参照を保持し、`resolved` に数値・色・文字スタイル・影の実値を併記します。`children` が子ノードです。
+
+例えば、ノードの `x:{token:"inset"}` はそのまま残し、`resolved.x:24` と `tokens.spacing.inset:24` を併記します。文字スタイルも `textStyle:{token:"heading"}` と、フォント・サイズ・太さ・行間・色・揃えの実値を両方参照できます。座標は親基準、単位はpx、行間は倍率、順序は描画順です。`instance` の外枠で子は拡縮されず、展開した子のIDは読み取り専用です。Markdownではデザイン内の文字や名前をエスケープし、JSON側のテキストは元の文字列を保持します。
+
+この操作はD1を更新せず、版も進めません。PNGを含めない場合はブラウザを起動せず、D1変更予算も消費しません（APIの毎分60回の制限は適用）。PNGを含める場合は、仕様と同じ取得時点のファイル・版を使い、`render_frame` と同じR2キャッシュを利用します。未キャッシュならBrowser Renderingの利用枠を消費します。PNG生成が失敗した場合はツール全体がエラーになるため、仕様だけ必要なら `includePng:false` を使ってください。
+
+デザ→実装担当への引き渡し例:
+
+> デザ: 対象フレームをexport_frame_specで書き出し、返ったMarkdownとJSON仕様、必要ならPNGをCodex/レノへ渡してください。
+> 実装担当: 記載されたファイルID・フレームID・版を基準に、トークン名を保ってサイズ・文字・余白を実装してください。デザイン変更後は新しい版の仕様を再取得してください。
+
+このツールは仕様の書き出しまでで、コード生成やFigmaへの転送は行いません。
 
 ## ビューア
 

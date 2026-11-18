@@ -1,6 +1,6 @@
 import { rateLimit } from './auth';
 import { z } from 'zod';
-import { base64 } from './encoding';
+import { exportFrameSpec } from './export';
 import type { Env } from './env';
 import {
   AppError,
@@ -18,11 +18,12 @@ import {
   type DesignNode,
 } from './model';
 import { Store } from './store';
-import { renderFrame } from './render';
+import { cachedFramePng } from './render';
 const fileId = { fileId: id };
 const frameId = { ...fileId, frameId: id };
 const version = { expectedVersion: z.number().int().positive().optional() };
 export const inputs = {
+  export_frame_spec: z.object({ ...frameId, includePng: z.boolean().default(false) }).strict(),
   list_components: z.object(fileId).strict(),
   set_component: z.object({ ...fileId, ...version, component: componentSchema }).strict(),
   delete_component: z.object({ ...fileId, ...version, componentId: id }).strict(),
@@ -64,6 +65,8 @@ export const inputs = {
 };
 export type ToolName = keyof typeof inputs;
 export const descriptions: Record<ToolName, string> = {
+  export_frame_spec:
+    'Export a frame as Markdown and JSON with used tokens, resolved values and expanded component nodes. Optional PNG uses the same file version; omit to avoid browser rendering.',
   list_components: 'List reusable node-tree components in a file',
   set_component:
     'Create or replace a component; all instances follow the master. Nested instances are unsupported.',
@@ -293,16 +296,17 @@ export async function execute(
       const { file, version } = await store.get(a.fileId);
       return { frame: frameTree(resolvedFrame(file, a.frameId)), tokens: file.tokens, version };
     }
+    case 'export_frame_spec': {
+      const a = inputs[name].parse(raw);
+      const { file, version } = await store.get(a.fileId);
+      const result = exportFrameSpec(file, a.frameId, version);
+      if (a.includePng) result.png = await cachedFramePng(file, version, a.frameId, env, origin);
+      return result;
+    }
     case 'render_frame': {
       const a = inputs[name].parse(raw);
       const { file, version } = await store.get(a.fileId);
-      const key = `renders/${file.id}/${a.frameId}/${version}.png`;
-      const cached = await env.IMAGES.get(key);
-      const png = cached
-        ? new Uint8Array(await cached.arrayBuffer())
-        : await renderFrame(resolvedFrame(file, a.frameId), file.tokens, env, origin);
-      if (!cached) await env.IMAGES.put(key, png, { httpMetadata: { contentType: 'image/png' } });
-      return { data: base64(png), mimeType: 'image/png' };
+      return cachedFramePng(file, version, a.frameId, env, origin);
     }
     case 'upload_image': {
       const a = inputs[name].parse(raw);

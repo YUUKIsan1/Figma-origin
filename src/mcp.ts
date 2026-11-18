@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { z } from 'zod';
+import type { FrameExport } from './export';
 import { AppError } from './model';
 import type { Env } from './env';
 import { descriptions, execute, inputs, type ToolName } from './service';
@@ -13,6 +14,16 @@ export async function handleMcp(request: Request, env: Env) {
       async (args: unknown) => {
         try {
           const result = await execute(name, args, env, new URL(request.url).origin);
+          if (name === 'export_frame_spec') {
+            const exported = result as FrameExport;
+            return {
+              content: [
+                { type: 'text' as const, text: exported.markdown },
+                { type: 'text' as const, text: JSON.stringify(exported.spec) },
+                ...(exported.png ? [{ type: 'image' as const, ...exported.png }] : []),
+              ],
+            };
+          }
           if (name === 'render_frame')
             return {
               content: [
