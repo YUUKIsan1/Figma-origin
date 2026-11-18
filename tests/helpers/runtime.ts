@@ -13,12 +13,20 @@ export async function startTestRuntime() {
     compatibilityDate: '2026-08-01',
     d1Databases: ['DB'],
     r2Buckets: ['IMAGES'],
+    ratelimits: {
+      API_RATE_LIMITER: { namespace_id: '1001', simple: { limit: 60, period: 60 } },
+      AUTH_RATE_LIMITER: { namespace_id: '1002', simple: { limit: 120, period: 60 } },
+      LOGIN_RATE_LIMITER: { namespace_id: '1003', simple: { limit: 5, period: 60 } },
+      WRITE_RATE_LIMITER: { namespace_id: '1004', simple: { limit: 12, period: 60 } },
+    },
   });
   const db = await mf.getD1Database('DB');
   const sql = await readFile('migrations/0001_initial.sql', 'utf8');
   for (const statement of sql.match(/CREATE TRIGGER[\s\S]*?END;|CREATE TABLE[\s\S]*?\);/g)!)
     await db.prepare(statement).run();
+  await db.prepare(await readFile('migrations/0002_remove_d1_rate_limits.sql', 'utf8')).run();
   const env = {
+    ...(await mf.getBindings()),
     DB: db,
     IMAGES: await mf.getR2Bucket('IMAGES'),
     BROWSER: {},
