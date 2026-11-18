@@ -15,6 +15,24 @@ it('logs in on a phone viewport, opens a frame, switches to PC and zooms', async
     compatibilityDate: '2026-08-01',
     d1Databases: ['DB'],
     r2Buckets: ['IMAGES'],
+    ratelimits: {
+      API_RATE_LIMITER: {
+        namespace_id: '1001',
+        simple: { limit: 60, period: 60 },
+      },
+      AUTH_RATE_LIMITER: {
+        namespace_id: '1002',
+        simple: { limit: 120, period: 60 },
+      },
+      LOGIN_RATE_LIMITER: {
+        namespace_id: '1003',
+        simple: { limit: 5, period: 60 },
+      },
+      WRITE_RATE_LIMITER: {
+        namespace_id: '1004',
+        simple: { limit: 12, period: 60 },
+      },
+    },
   });
   const browser = await puppeteer.launch({
     executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
@@ -27,6 +45,7 @@ it('logs in on a phone viewport, opens a frame, switches to PC and zooms', async
     for (const stmt of sql.match(/CREATE TRIGGER[\s\S]*?END;|CREATE TABLE[\s\S]*?\);/g)!)
       await db.prepare(stmt).run();
     const env = {
+      ...(await mf.getBindings()),
       DB: db,
       IMAGES: await mf.getR2Bucket('IMAGES'),
       ADMIN_TOKEN: crypto.randomUUID(),
@@ -55,8 +74,13 @@ it('logs in on a phone viewport, opens a frame, switches to PC and zooms', async
     } as unknown as Env;
     const call = (name: Parameters<typeof execute>[0], args: unknown) =>
       execute(name, args, env, 'https://canvas.test');
-    const { file } = (await call('create_file', { name: 'ReNote' })) as { file: { id: string } };
-    const { page } = (await call('create_page', { fileId: file.id, name: 'Home' })) as {
+    const { file } = (await call('create_file', { name: 'ReNote' })) as {
+      file: { id: string };
+    };
+    const { page } = (await call('create_page', {
+      fileId: file.id,
+      name: 'Home',
+    })) as {
       page: { id: string };
     };
     for (const [name, width, height] of [
@@ -90,7 +114,12 @@ it('logs in on a phone viewport, opens a frame, switches to PC and zooms', async
     await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
     const tab = await browser.newPage();
     tab.setDefaultTimeout(10000);
-    await tab.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+    await tab.setViewport({
+      width: 390,
+      height: 844,
+      isMobile: true,
+      hasTouch: true,
+    });
     const errors: string[] = [];
     tab.on('pageerror', (e) => errors.push(String(e)));
     await tab.goto(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
@@ -132,7 +161,10 @@ it('logs in on a phone viewport, opens a frame, switches to PC and zooms', async
     await tab.frames()[1].evaluate(async () => {
       await document.fonts.ready;
     });
-    await tab.screenshot({ path: '/tmp/canvas-note-viewer.png', fullPage: true });
+    await tab.screenshot({
+      path: '/tmp/canvas-note-viewer.png',
+      fullPage: true,
+    });
     expect(errors).toEqual([]);
     await tab.click('#logout');
     await tab.waitForSelector('#login:not([hidden])');
