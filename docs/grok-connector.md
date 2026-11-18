@@ -74,7 +74,7 @@ unset -f issue_canvas_token
 2. 新しいリモートMCP接続を追加し、上表のURL・Streamable HTTP・Bearer認証を指定する。
 3. `CANVAS_MCP_TOKEN` の値を認証欄へ直接渡す。チャットへの貼り付けやBotへの自然文での送信はしない。
 4. 保存し、画面に接続確認・ツール再読み込みの操作があれば実行する。
-5. `list_files`、`create_file`、`create_page`、`create_frame`、`create_nodes`、`update_nodes`、`delete_nodes`、`set_tokens`、`get_tokens`、`get_file`、`get_frame_tree`、`render_frame`、`upload_image`、`list_revisions`、`restore_revision` が取得できることを確認する。
+5. `list_files`、`create_file`、`create_page`、`create_frame`、`create_nodes`、`update_nodes`、`delete_nodes`、`set_tokens`、`get_tokens`、`get_file`、`get_frame_tree`、`render_frame`、`upload_image`、`list_revisions`、`restore_revision`、`list_components`、`set_component`、`create_instances`、`delete_component` が取得できることを確認する。
 
 環境変数から認証欄へ値を渡す際、ローカルのパスワード管理ツールを使うか、次の例でクリップボードへ直接送れます。どちらも値をターミナルには表示しません。使ったクリップボードは登録後に消去してください。画面共有は停止して作業します。
 

@@ -6,6 +6,9 @@ import {
   AppError,
   assert,
   findFrame,
+  resolvedFrame,
+  componentSchema,
+  instanceSchema,
   frameInput,
   frameTree,
   id,
@@ -20,6 +23,12 @@ const fileId = { fileId: id };
 const frameId = { ...fileId, frameId: id };
 const version = { expectedVersion: z.number().int().positive().optional() };
 export const inputs = {
+  list_components: z.object(fileId).strict(),
+  set_component: z.object({ ...fileId, ...version, component: componentSchema }).strict(),
+  delete_component: z.object({ ...fileId, ...version, componentId: id }).strict(),
+  create_instances: z
+    .object({ ...frameId, ...version, instances: z.array(instanceSchema).min(1).max(200) })
+    .strict(),
   list_files: z.object({}).strict(),
   create_file: z.object({ name: z.string().trim().min(1).max(200) }).strict(),
   get_file: z.object(fileId).strict(),
@@ -55,6 +64,12 @@ export const inputs = {
 };
 export type ToolName = keyof typeof inputs;
 export const descriptions: Record<ToolName, string> = {
+  list_components: 'List reusable node-tree components in a file',
+  set_component:
+    'Create or replace a component; all instances follow the master. Nested instances are unsupported.',
+  delete_component: 'Delete an unused component; remove its instances first',
+  create_instances:
+    'Place up to 200 component instances; coordinates are relative to parent, children follow the master without scaling',
   list_files: 'List design files',
   create_file: 'Create an empty design file',
   get_file: 'Read file and current version',
@@ -80,6 +95,9 @@ export async function execute(
 ): Promise<unknown> {
   if (
     [
+      'set_component',
+      'delete_component',
+      'create_instances',
       'create_file',
       'create_page',
       'create_frame',
@@ -93,6 +111,70 @@ export async function execute(
     await rateLimit(env.WRITE_RATE_LIMITER, 'workspace');
   const store = new Store(env);
   switch (name) {
+    case 'list_components': {
+      const { file, version } = await store.get(inputs[name].parse(raw).fileId);
+      return { components: file.components ?? [], version };
+    }
+    case 'set_component': {
+      const a = inputs[name].parse(raw);
+      await checkImages(a.component.nodes, env);
+      const result = await store.mutate(
+        a.fileId,
+        (f) => {
+          const components = (f.components ??= []);
+          const index = components.findIndex((c) => c.id === a.component.id);
+          if (index < 0) components.push(a.component);
+          else components[index] = a.component;
+        },
+        a.expectedVersion,
+      );
+      return { component: a.component, version: result.version };
+    }
+    case 'delete_component': {
+      const a = inputs[name].parse(raw);
+      const result = await store.mutate(
+        a.fileId,
+        (f) => {
+          assert(
+            f.components?.some((c) => c.id === a.componentId),
+            'Component not found',
+          );
+          assert(
+            !f.pages.some((p) =>
+              p.frames.some((frame) =>
+                frame.nodes.some((n) => n.type === 'instance' && n.componentId === a.componentId),
+              ),
+            ),
+            'Component is in use; delete its instances first',
+          );
+          f.components = f.components!.filter((c) => c.id !== a.componentId);
+        },
+        a.expectedVersion,
+      );
+      return { version: result.version };
+    }
+    case 'create_instances': {
+      const a = inputs[name].parse(raw);
+      let nodes: DesignNode[] = [];
+      const result = await store.mutate(
+        a.fileId,
+        (f) => {
+          nodes = a.instances.map((instance) => {
+            const master = f.components?.find((c) => c.id === instance.componentId);
+            assert(master, 'Unknown component');
+            return nodeSchema.parse({
+              ...instance,
+              type: 'instance',
+              name: instance.name ?? master.name,
+              fill: '#00000000',
+            });
+          });
+          findFrame(f, a.frameId).nodes.push(...nodes);
+        },
+        a.expectedVersion,
+      );
+      return { nodes, version: result.version };
+    }
     case 'list_files':
       inputs[name].parse(raw);
       return store.list();
@@ -102,6 +184,7 @@ export async function execute(
         id: crypto.randomUUID(),
         name: a.name,
         pages: [],
+        components: [],
         tokens: tokensSchema.parse({}),
       });
     }
@@ -208,7 +291,7 @@ export async function execute(
     case 'get_frame_tree': {
       const a = inputs[name].parse(raw);
       const { file, version } = await store.get(a.fileId);
-      return { frame: frameTree(findFrame(file, a.frameId)), tokens: file.tokens, version };
+      return { frame: frameTree(resolvedFrame(file, a.frameId)), tokens: file.tokens, version };
     }
     case 'render_frame': {
       const a = inputs[name].parse(raw);
@@ -217,7 +300,7 @@ export async function execute(
       const cached = await env.IMAGES.get(key);
       const png = cached
         ? new Uint8Array(await cached.arrayBuffer())
-        : await renderFrame(findFrame(file, a.frameId), file.tokens, env, origin);
+        : await renderFrame(resolvedFrame(file, a.frameId), file.tokens, env, origin);
       if (!cached) await env.IMAGES.put(key, png, { httpMetadata: { contentType: 'image/png' } });
       return { data: base64(png), mimeType: 'image/png' };
     }

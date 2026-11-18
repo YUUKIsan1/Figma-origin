@@ -128,12 +128,16 @@ Botへの指示例:
 | `upload_image` | `data`（base64）, `mimeType` | `imageId` |
 | `list_revisions` | `fileId` | 直近20版の一覧 |
 | `restore_revision` | `fileId`, `revision`, `expectedVersion` | 復元したファイルと新しい版番号 |
+| `list_components` | `fileId` | 部品定義一覧と版番号 |
+| `set_component` | `fileId`, `component:{id?,name,nodes}` | マスターを作成/全置換、版番号 |
+| `create_instances` | `fileId`, `frameId`, `instances:[{componentId,id?,name?,parentId?,x?,y?,w?,h?,opacity?}]` | 最大200インスタンスを配置、版番号 |
+| `delete_component` | `fileId`, `componentId` | 未使用の部品を削除、版番号 |
 
 変更ツールでは `expectedVersion` を指定できます。競合時は409となり、再取得してから再試行します。各変更はファイル単位で原子的です。失敗したバッチは保存されません。復元も新しい版として記録されます。
 
 ### データモデルと例
 
-File → Page → Frame → Node。Nodeはフレーム内の配列で保存し、`parentId` でgroupに所属させます。座標は親group基準、配列順が描画順（後が前面）。親は同一フレームのgroupのみ、循環参照は禁止です。groupの大きさは子を自動配置せず、子はフレーム境界で切り取られます。
+File → Page → Frame → Node。Nodeはrect/text/image/group/instanceの5種類で、フレーム内の配列で保存し、`parentId` でgroupに所属させます。座標は親group基準、配列順が描画順（後が前面）。親は同一フレームのgroupのみ、循環参照は禁止です。groupの大きさは子を自動配置せず、子はフレーム境界で切り取られます。
 
 ```json
 {
@@ -163,6 +167,44 @@ File → Page → Frame → Node。Nodeはフレーム内の配列で保存し�
 共通: `id`（省略でUUID）, `name`, `type`, `parentId`, `x,y,w,h`, `fill`, `stroke`, `strokeWidth`, `radius`, `opacity`, `shadow:{x,y,blur,color}|null`。画像は `imageId`、テキストは `text`, `textStyle`。フォントは `sans/serif/mono`、太さは `normal/bold`。日本語は同梱Noto Sans JPで表示します。行間は倍率。塗り・線・文字色は `colors`、角丸は `radii`、線幅は `spacing`、文字スタイルは `textStyles` の `{token:"名前"}` で参照できます。x/y/w/hにも `spacing` トークンを参照できます。自動レイアウトはありません。
 
 色は `#RRGGBB` / `#RRGGBBAA`。画像はPNG/JPEG/WebP・2MBまで、外部URL・SVGは不可。画像は領域にcoverで表示します。1ファイル1MB、100ページ、1ページ100フレーム、1フレーム1000ノード、最大4096px・800万画素。1回のバッチは最大200ノードです。
+
+## 再利用コンポーネント
+
+コンポーネントはファイル単位のNodeツリーです。`set_component` は同じIDの定義を全置換し、全フレームのインスタンスが次の描画で追随します。更新は通常の版履歴に保存され、`restore_revision` でマスターも戻ります。PNGキャッシュはファイルの版で分かれるため、古いマスターのPNGを返しません。既存ファイルに `components` がなくても空の一覧として扱い、DBマイグレーションは不要です。
+
+マスターはrect/text/image/group（最大200ノード、100部品/ファイル）で構成し、ファイルの色・文字・余白・角丸トークンを参照できます。子ノードのIDはマスター内で一意にします。部品を入れ子にしたインスタンス・バリアント・子ノードの個別上書きは今回の対象外です。
+
+インスタンスは配置・名前・不透明度などの外枠を保持し、マスターの子を複製して保存しません。`x/y` は親groupからの位置、`w/h` は外枠の大きさで、子の拡縮・自動レイアウト・切り取りはしません（座標と描画は1:1、クリップはフレーム境界）。マスターの子の形状や文字を変更しても、インスタンスの配置・名前・不透明度は維持されます。外枠は既存の `update_nodes` で更新でき、インスタンス自体は `create_nodes` で `type:"instance", componentId` を指定しても作成できます。`create_instances` は背景を透明にする配置用の補助です。
+
+`get_frame_tree` はinstanceの `componentId` と展開済みの子を返します。子のIDは `インスタンスID/マスターノードID` の読み取り専用IDで、更新対象ではありません。子を修正するには `set_component` を使ってください。保存前に展開結果を検証し、1フレーム最大1000ノード・階層20までを適用します。使用中の部品削除、存在しない部品参照、子への直接追加、不正トークン、展開上限超過は変更全体を保存せず拒否します。部品を削除するときは、先に全インスタンスを `delete_nodes` で削除します。
+
+例（`fileId`・各フレームIDは取得済みのものを使う）:
+
+```json
+{
+  "fileId":"取得したファイルID",
+  "component":{
+    "id":"note-card",
+    "name":"Note card",
+    "nodes":[
+      {"id":"panel","type":"group","w":320,"h":180,"fill":{"token":"brand"},"radius":{"token":"card"}},
+      {"id":"title","type":"text","parentId":"panel","x":16,"y":24,"w":288,"h":60,"fill":"#00000000","text":"今日のアイデア","textStyle":{"token":"title"}}
+    ]
+  }
+}
+```
+
+上を `set_component` で登録した後、モバイル・PCそれぞれに次の `create_instances` を呼びます。`brand`・`card`・`title` は先に `set_tokens` で定義してください。
+
+```json
+{
+  "fileId":"取得したファイルID",
+  "frameId":"配置先のフレームID",
+  "instances":[{"componentId":"note-card","x":24,"y":32}]
+}
+```
+
+`list_components` で定義を取得し、見出しや塗りを変えて同じ `component.id` で `set_component` すると、両方のPNGとビューアへ反映されます。変更ツールの `expectedVersion` と、ワークスペースの毎分12回のD1変更予算も既存どおり適用します。
 
 ## ビューア
 

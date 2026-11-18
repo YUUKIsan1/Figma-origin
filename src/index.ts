@@ -13,7 +13,7 @@ import {
   sessionCookie,
   validateSecrets,
 } from './auth';
-import { AppError, findFrame } from './model';
+import { AppError, resolvedFrame } from './model';
 import { Store } from './store';
 import { execute, inputs, type ToolName } from './service';
 import { handleMcp } from './mcp';
@@ -107,7 +107,7 @@ app.get('/api/files/:id', async (c) => c.json(await new Store(c.env).get(c.req.p
 app.get('/preview/:fileId/:frameId', async (c) => {
   if (!(await hasSession(c.req.raw, c.env))) throw new AppError(401, 'Login required');
   const { file } = await new Store(c.env).get(c.req.param('fileId'));
-  const frame = findFrame(file, c.req.param('frameId'));
+  const frame = resolvedFrame(file, c.req.param('frameId'));
   return c.html(
     renderDocument(
       frame,
