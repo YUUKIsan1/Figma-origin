@@ -16,7 +16,7 @@ jobs:
       - run: npm ci
       - name: Install Chromium for PNG integration tests
         run: |
-          npx --no-install browsers install chrome@stable --install-deps --path "$RUNNER_TEMP/browsers"
+          sudo "$(command -v node)" node_modules/@puppeteer/browsers/lib/main-cli.js install chrome@stable --install-deps --path "$RUNNER_TEMP/browsers"
           echo "CHROMIUM_PATH=$(rg --files "$RUNNER_TEMP/browsers" | rg '/chrome$' | head -1)" >> "$GITHUB_ENV"
       - run: npm run check
       - run: npm run build
